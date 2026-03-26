@@ -1,0 +1,79 @@
+version: '3.8' #version del formato de docker compose
+services: #define los contenedores
+  product_service:
+    build: ./product_service
+    ports:
+      - "8001:8001" #PC puerto 8001 → contenedor puerto 8001
+    networks:
+      - microservices_net
+    volumes:
+      - ./data/products:/app/data
+      # ./data/products → carpeta donde persiste products.db
+      # /app/data       → carpeta dentro del contenedor
+    environment:
+      # VARIABLES DE ENTORNO: se inyectan al contenedor en tiempo de ejecución.
+      # El servicio las lee con os.environ.get("SECRET_TOKEN").
+      # Ventaja: cambiar el token no requiere modificar ni reconstruir el código,
+      # solo cambiar este archivo y reiniciar con docker-compose up.
+      - SECRET_TOKEN=penguin-token-123
+
+  inventory_service:
+    build: ./inventory_service
+    ports:
+      - "8002:8002"
+    networks:
+      - microservices_net
+    volumes:
+      - ./data/inventory:/app/data
+      # inventory.db se guardará en: ./data/inventory/inventory.db
+    environment:
+      - SECRET_TOKEN=penguin-token-123
+
+  order_service:
+    build: ./order_service
+    ports:
+      - "8003:8003"
+    depends_on: # order_service espera a que inventory_service esté listo
+      - inventory_service
+    networks:
+      - microservices_net
+    environment:
+      - SECRET_TOKEN=penguin-token-123
+      # INVENTORY_URL: URL interna del contenedor inventory_service.
+      # Al estar en la misma red Docker, se accede por nombre de servicio.
+      - INVENTORY_URL=http://inventory_service:8002/inventory/reserve
+    # order_service no tiene DB propia, no necesita volumen
+
+
+# ------------------------
+# RED INTERNA DE DOCKER
+# ------------------------
+# Red virtual privada que permite a los contenedores comunicarse por nombre.
+# Ej: order_service llama a http://inventory_service:8002 sin conocer la IP real.
+networks:
+  microservices_net:
+    driver: bridge
+    # bridge: red privada local en la máquina host.
+    # Los contenedores se ven entre sí pero están aislados del exterior,
+    # salvo los puertos expuestos con "ports:".
+
+
+# ¿Qué son las variables de entorno en Docker?
+# Son valores configurables que se pasan al contenedor al momento de iniciarlo.
+# Dentro del contenedor, Python las lee con: os.environ.get("NOMBRE_VARIABLE")
+# Beneficios:
+#   - El código no tiene valores sensibles hardcodeados (tokens, URLs, passwords)
+#   - Para cambiar el token basta con editar este archivo y reiniciar
+#   - En producción se usaría un gestor de secretos (AWS Secrets Manager, Vault, etc.)
+#
+# Estructura de carpetas persistentes:
+# proyecto/
+# ├── docker-compose.yml
+# ├── data/
+# │   ├── products/
+# │   │   └── products.db
+# │   └── inventory/
+# │       └── inventory.db
+# ├── product_service/
+# ├── inventory_service/
+# └── order_service/
